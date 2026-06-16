@@ -35,6 +35,11 @@ Thumbs.db
 .vscode/
 .idea/
 
+# ML model weights (live in the HF Space repo, not here)
+*.pth
+*.pt
+__pycache__/
+
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts
