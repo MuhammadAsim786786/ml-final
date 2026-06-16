@@ -18,7 +18,8 @@ export const metadata = {
   description:
     "AI-assisted skin disease classification dashboard. Upload an image to get an instant prediction across 7 conditions.",
   icons: {
-    icon: "/favicon.png",
+    // Use a cache-busted URL during development so browsers fetch the latest image
+    icon: "/favicon.png?v=2",
   },
 };
 

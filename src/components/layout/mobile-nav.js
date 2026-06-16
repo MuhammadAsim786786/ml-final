@@ -33,7 +33,8 @@ export function MobileNav() {
               onClick={() => setOpen(false)}
             />
             <motion.div
-              className="fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-sidebar-border bg-sidebar px-4 py-5"
+              className="fixed inset-y-0 left-0 right-auto z-50 flex w-72 flex-col border-r border-sidebar-border bg-sidebar px-4 py-5 shadow-2xl"
+              style={{ left: 0, right: "auto", backgroundColor: "var(--color-sidebar, var(--sidebar))" }}
               initial={{ x: "-100%" }}
               animate={{ x: 0 }}
               exit={{ x: "-100%" }}
