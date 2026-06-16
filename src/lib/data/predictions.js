@@ -1,45 +1,85 @@
 import "server-only";
+import { createClient } from "@/lib/supabase/server";
 import { DISEASES, diseaseLabel } from "@/lib/constants/diseases";
 
-// ---------------------------------------------------------------------------
-// Mock data — replace with the Supabase implementation once the project is
-// wired up. See the commented-out real version below.
-// ---------------------------------------------------------------------------
-
-function daysAgo(n) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d.toISOString();
-}
-
-const MOCK_SCANS = [
-  { id: "1",  predicted_label: "Eczema",                   predicted_id: "eczema",                   confidence: 0.91, created_at: daysAgo(0),  imageUrl: null, source: "mock" },
-  { id: "2",  predicted_label: "Melanocytic Nevi (Moles)", predicted_id: "melanocytic-nevi",          confidence: 0.83, created_at: daysAgo(1),  imageUrl: null, source: "mock" },
-  { id: "3",  predicted_label: "Warts / Molluscum",        predicted_id: "warts-molluscum",           confidence: 0.77, created_at: daysAgo(2),  imageUrl: null, source: "mock" },
-  { id: "4",  predicted_label: "Seborrheic Keratoses",     predicted_id: "seborrheic-keratoses",      confidence: 0.88, created_at: daysAgo(3),  imageUrl: null, source: "mock" },
-  { id: "5",  predicted_label: "Basal Cell Carcinoma",     predicted_id: "bcc",                       confidence: 0.95, created_at: daysAgo(4),  imageUrl: null, source: "mock" },
-  { id: "6",  predicted_label: "Benign Keratosis",         predicted_id: "bkl",                       confidence: 0.72, created_at: daysAgo(5),  imageUrl: null, source: "mock" },
-  { id: "7",  predicted_label: "Eczema",                   predicted_id: "eczema",                    confidence: 0.86, created_at: daysAgo(6),  imageUrl: null, source: "mock" },
-  { id: "8",  predicted_label: "Melanoma",                 predicted_id: "melanoma",                  confidence: 0.79, created_at: daysAgo(8),  imageUrl: null, source: "mock" },
-  { id: "9",  predicted_label: "Melanocytic Nevi (Moles)", predicted_id: "melanocytic-nevi",          confidence: 0.93, created_at: daysAgo(10), imageUrl: null, source: "mock" },
-  { id: "10", predicted_label: "Warts / Molluscum",        predicted_id: "warts-molluscum",           confidence: 0.68, created_at: daysAgo(12), imageUrl: null, source: "mock" },
-  { id: "11", predicted_label: "Eczema",                   predicted_id: "eczema",                    confidence: 0.89, created_at: daysAgo(14), imageUrl: null, source: "mock" },
-  { id: "12", predicted_label: "Seborrheic Keratoses",     predicted_id: "seborrheic-keratoses",      confidence: 0.74, created_at: daysAgo(16), imageUrl: null, source: "mock" },
-  { id: "13", predicted_label: "Benign Keratosis",         predicted_id: "bkl",                       confidence: 0.81, created_at: daysAgo(18), imageUrl: null, source: "mock" },
-  { id: "14", predicted_label: "Basal Cell Carcinoma",     predicted_id: "bcc",                       confidence: 0.85, created_at: daysAgo(20), imageUrl: null, source: "mock" },
-  { id: "15", predicted_label: "Melanoma",                 predicted_id: "melanoma",                  confidence: 0.90, created_at: daysAgo(22), imageUrl: null, source: "mock" },
-];
-
 export async function getUserPredictions(limit = 100) {
-  return MOCK_SCANS.slice(0, limit);
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return [];
+
+  const { data: rows, error } = await supabase
+    .from("predictions")
+    .select("*")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error || !rows) return [];
+
+  const predictions = await Promise.all(
+    rows.map(async (p) => {
+      let imageUrl = null;
+      if (p.image_path) {
+        const { data: signed } = await supabase.storage
+          .from("scans")
+          .createSignedUrl(p.image_path, 60 * 60);
+        imageUrl = signed?.signedUrl ?? null;
+      }
+      return {
+        id: p.id,
+        predicted_label: p.predicted_label,
+        predicted_id: p.predicted_id,
+        confidence: Number(p.confidence),
+        created_at: p.created_at,
+        imageUrl,
+        source: p.source,
+        scores: p.scores,
+      };
+    }),
+  );
+
+  return predictions;
 }
 
 export async function getDashboardStats() {
-  const predictions = MOCK_SCANS;
-  const total = predictions.length;
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  const avgConfidence =
-    predictions.reduce((a, p) => a + p.confidence, 0) / total;
+  if (!user) {
+    return {
+      total: 0,
+      avgConfidence: 0,
+      topDisease: null,
+      topCount: 0,
+      byDisease: DISEASES.map((d) => ({
+        id: d.id,
+        label: d.label,
+        count: 0,
+        fill: d.chart,
+      })),
+      trend: [],
+      recent: [],
+    };
+  }
+
+  const { data: rows } = await supabase
+    .from("predictions")
+    .select("*")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(1000);
+
+  const predictions = rows ?? [];
+
+  const total = predictions.length;
+  const avgConfidence = total
+    ? predictions.reduce((a, p) => a + Number(p.confidence), 0) / total
+    : 0;
 
   const counts = Object.fromEntries(DISEASES.map((d) => [d.id, 0]));
   for (const p of predictions) {
@@ -56,17 +96,43 @@ export async function getDashboardStats() {
   let topDisease = null;
   let topCount = 0;
   for (const d of byDisease) {
-    if (d.count > topCount) { topCount = d.count; topDisease = d.label; }
+    if (d.count > topCount) {
+      topCount = d.count;
+      topDisease = d.label;
+    }
   }
 
-  const trend = [...predictions]
+  const trend = predictions
+    .slice()
     .reverse()
     .slice(-12)
     .map((p, i) => ({
       index: i + 1,
-      confidence: Math.round(p.confidence * 100),
+      confidence: Math.round(Number(p.confidence) * 100),
       label: diseaseLabel(p.predicted_id),
     }));
+
+  const recent = await Promise.all(
+    predictions.slice(0, 5).map(async (p) => {
+      let imageUrl = null;
+      if (p.image_path) {
+        const { data: signed } = await supabase.storage
+          .from("scans")
+          .createSignedUrl(p.image_path, 60 * 60);
+        imageUrl = signed?.signedUrl ?? null;
+      }
+      return {
+        id: p.id,
+        predicted_label: p.predicted_label,
+        predicted_id: p.predicted_id,
+        confidence: Number(p.confidence),
+        created_at: p.created_at,
+        imageUrl,
+        source: p.source,
+        scores: p.scores,
+      };
+    }),
+  );
 
   return {
     total,
@@ -75,6 +141,6 @@ export async function getDashboardStats() {
     topCount,
     byDisease,
     trend,
-    recent: predictions.slice(0, 5),
+    recent,
   };
 }

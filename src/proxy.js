@@ -1,10 +1,9 @@
-import { NextResponse } from "next/server";
+import { updateSession } from "@/lib/supabase/proxy";
 
-// Mock mode: pass all requests through without auth checks.
-// Switch back to the Supabase-backed version in lib/supabase/proxy.js
-// once a Supabase project is configured.
-export function proxy() {
-  return NextResponse.next();
+// Proxy middleware — delegate to the Supabase session updater which refreshes
+// the auth cookie and enforces route gating.
+export async function proxy(request) {
+  return updateSession(request);
 }
 
 export const config = {

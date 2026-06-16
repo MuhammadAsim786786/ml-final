@@ -1,13 +1,13 @@
 "use server";
 
 import { classifySkinImage } from "@/lib/inference/predict";
+import { createClient } from "@/lib/supabase/server";
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const ALLOWED = ["image/jpeg", "image/png", "image/webp"];
 
-// Mock mode: classifies the image and returns the result without any
-// Supabase upload or DB insert. The result still comes from the real
-// inference module (mock classifier or real endpoint if INFERENCE_API_URL is set).
+// Upload the image to Supabase Storage, call the inference module and
+// insert a row into `predictions` (server-side).
 export async function detectAndSave(formData) {
   const file = formData.get("image");
   if (!file || typeof file.arrayBuffer !== "function") {
@@ -21,20 +21,84 @@ export async function detectAndSave(formData) {
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const ext = (file.name || "jpg").split(".").pop();
+  const path = `${user.id}/${crypto.randomUUID()}.${ext}`;
+
+  // Upload to private `scans` bucket.
+  const { error: uploadError } = await supabase.storage
+    .from("scans")
+    .upload(path, buffer, { contentType: file.type });
+  if (uploadError) return { error: uploadError.message };
+
+  // Run classifier (may call real inference endpoint or mock fallback).
   const result = await classifySkinImage(buffer, file.name ?? "image.jpg");
 
+  const { data: inserted, error: insertError } = await supabase
+    .from("predictions")
+    .insert([
+      {
+        user_id: user.id,
+        image_path: path,
+        predicted_label: result.label,
+        predicted_id: result.predictedId,
+        confidence: result.confidence,
+        scores: result.scores,
+        source: result.source,
+      },
+    ])
+    .select()
+    .single();
+
+  if (insertError) return { error: insertError.message };
+
+  const { data: signed } = await supabase.storage
+    .from("scans")
+    .createSignedUrl(path, 60 * 60);
+
   return {
-    id: crypto.randomUUID(),
-    label: result.label,
-    predictedId: result.predictedId,
-    confidence: result.confidence,
-    scores: result.scores,
-    source: result.source,
-    imageUrl: null, // no storage in mock mode
+    id: inserted.id,
+    label: inserted.predicted_label,
+    predictedId: inserted.predicted_id,
+    confidence: Number(inserted.confidence),
+    scores: inserted.scores,
+    source: inserted.source,
+    imageUrl: signed?.signedUrl ?? null,
   };
 }
 
-// No-op in mock mode.
-export async function deletePrediction() {
+// Delete a prediction row and its storage object.
+export async function deletePrediction(predictionId) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: pred, error: fetchErr } = await supabase
+    .from("predictions")
+    .select("image_path")
+    .eq("id", predictionId)
+    .eq("user_id", user.id)
+    .single();
+  if (fetchErr) return { error: fetchErr.message };
+
+  if (pred?.image_path) {
+    await supabase.storage.from("scans").remove([pred.image_path]);
+  }
+
+  const { error: delErr } = await supabase
+    .from("predictions")
+    .delete()
+    .eq("id", predictionId)
+    .eq("user_id", user.id);
+  if (delErr) return { error: delErr.message };
+
   return { success: true };
 }
