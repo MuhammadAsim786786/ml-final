@@ -16,7 +16,10 @@ const geistMono = Geist_Mono({
 export const metadata = {
   title: "DermaScan — Skin Disease Detection",
   description:
-    "AI-assisted skin disease classification dashboard. Upload an image to get an instant prediction across 10 conditions.",
+    "AI-assisted skin disease classification dashboard. Upload an image to get an instant prediction across 7 conditions.",
+  icons: {
+    icon: "/favicon.png",
+  },
 };
 
 export default function RootLayout({ children }) {
