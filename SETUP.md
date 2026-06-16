@@ -1,7 +1,7 @@
 # DermaScan — Setup
 
 AI-assisted skin disease classification dashboard (Next.js 16 + Supabase).
-The UI classifies an uploaded image across the **10 disease classes** from the
+The UI classifies an uploaded image across the **7 disease classes** from the
 project dataset.
 
 ## 1. Install

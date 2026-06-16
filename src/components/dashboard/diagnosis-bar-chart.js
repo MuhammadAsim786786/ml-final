@@ -27,7 +27,7 @@ export function DiagnosisBarChart({ data }) {
     <Card className="col-span-full xl:col-span-1">
       <CardHeader>
         <CardTitle>Diagnoses by condition</CardTitle>
-        <CardDescription>How your scans break down across the 10 classes</CardDescription>
+        <CardDescription>How your scans break down across the 7 classes</CardDescription>
       </CardHeader>
       <CardContent>
         <ChartContainer config={chartConfig} className="h-[260px] w-full">
